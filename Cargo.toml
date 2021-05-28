@@ -1,0 +1,17 @@
+[package]
+name = "burchill-dev-utilities"
+version = "0.1.0"
+authors = ["NathanSMB <nathan@burchill.io>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.48"
+chrono = "0.4.19"
+quaint = { git = "https://github.com/prisma/quaint", features = [ "chrono", "postgresql", "uuid" ] }
+sqlx = { version = "0.5", features = [ "chrono", "runtime-tokio-rustls", "postgres", "uuid" ] }
+thiserror = "1.0"
+# tokio = { version = "1", features = ["full"] }
+# unicode-segmentation = "1.7.1"
+uuid = "0.8"
