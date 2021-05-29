@@ -159,21 +159,27 @@ pub trait PostgresEntity<'a, D> {
 
     async fn save<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
+        if let Err(err) = self.pre_save_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
         let result = if let Some(_) = self.get_id() {
             self.update(&user_id, executor)
         } else {
             self.insert(&user_id, executor)
         };
+
+        let result = result.await?;
+
+        if let Err(err) = self.post_save_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
         
-        Ok(result.await?)
+        Ok(result)
     }
 
     async fn insert<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
-        if let Err(err) = self.pre_save_hook().await {
-            return Err(BurchillPostgresError::AnyhowError(err));
-        }
-
         if let Err(err) = self.pre_insert_hook().await {
             return Err(BurchillPostgresError::AnyhowError(err));
         }
@@ -193,19 +199,11 @@ pub trait PostgresEntity<'a, D> {
             return Err(BurchillPostgresError::AnyhowError(err));
         }
 
-        if let Err(err) = self.post_save_hook().await {
-            return Err(BurchillPostgresError::AnyhowError(err));
-        }
-
         Ok(())
     }
 
     async fn update<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
-        if let Err(err) = self.pre_save_hook().await {
-            return Err(BurchillPostgresError::AnyhowError(err));
-        }
-
         if let Err(err) = self.pre_update_hook().await {
             return Err(BurchillPostgresError::AnyhowError(err));
         }
@@ -218,10 +216,6 @@ pub trait PostgresEntity<'a, D> {
         entity_manager.set_last_updated_time(result.last_updated_time);
 
         if let Err(err) = self.post_update_hook().await {
-            return Err(BurchillPostgresError::AnyhowError(err));
-        }
-
-        if let Err(err) = self.post_save_hook().await {
             return Err(BurchillPostgresError::AnyhowError(err));
         }
 
