@@ -1,8 +1,6 @@
 use sqlx::{Executor, FromRow, Pool, Postgres, postgres::{PgArguments, PgConnectOptions, PgPoolOptions, PgRow}, query::{QueryAs}};
 use quaint::{Value, prelude::{Select, Update}, visitor::Visitor};
-use std::error;
 use thiserror::Error;
-use std::fmt;
 use chrono::{DateTime, Utc};
 use uuid::{Uuid};
 
@@ -27,7 +25,7 @@ pub async fn get_connection_pool(options: PgConnectOptions, max_connections: u32
     Ok(pool)
 }
 
-pub fn add_bindings_to_query<'b, T>(query: QueryAs<'b, Postgres, T, PgArguments>, params: Vec<Value>) -> Result<QueryAs<'b, Postgres, T, PgArguments>, Box<dyn error::Error>> {
+pub fn add_bindings_to_query<'b, T>(query: QueryAs<'b, Postgres, T, PgArguments>, params: Vec<Value>) -> Result<QueryAs<'b, Postgres, T, PgArguments>, BurchillPostgresError> {
     let mut new_query = query;
     for value in params.into_iter() {
         new_query = add_binding_to_query(new_query, value)?;
@@ -35,7 +33,7 @@ pub fn add_bindings_to_query<'b, T>(query: QueryAs<'b, Postgres, T, PgArguments>
     Ok(new_query)
 }
 
-pub fn add_binding_to_query<'b, T>(query: QueryAs<'b, Postgres, T, PgArguments>, value: Value) -> Result<QueryAs<'b, Postgres, T, PgArguments>, Box<dyn error::Error>> {
+pub fn add_binding_to_query<'b, T>(query: QueryAs<'b, Postgres, T, PgArguments>, value: Value) -> Result<QueryAs<'b, Postgres, T, PgArguments>, BurchillPostgresError> {
     match value {
         Value::Integer(_) => Ok(query.bind(value.as_i64())),
         Value::Float(_) => Ok(query.bind(value.as_f32())),
@@ -48,7 +46,7 @@ pub fn add_binding_to_query<'b, T>(query: QueryAs<'b, Postgres, T, PgArguments>,
         Value::Enum(_) => Ok(query.bind(value.into_string())),
         Value::Uuid(_) => Ok(query.bind(value.as_uuid())),
         Value::DateTime(_) => Ok(query.bind(value.as_datetime())),
-        _ => Err(Box::new(UnknownSqlType))
+        _ => Err(BurchillPostgresError::UnknownSqlType)
     }
 }
 
@@ -62,7 +60,7 @@ pub fn add_base_fields_to_select(query: Select) -> Select {
         .column("active")
 }
 
-pub fn create_sqlx_query<'a, T>(query: &'a str, bindings: Vec<Value>) -> Result<QueryAs<'a, sqlx::Postgres, T, PgArguments>, Box<dyn error::Error>>
+pub fn create_sqlx_query<'a, T>(query: &'a str, bindings: Vec<Value>) -> Result<QueryAs<'a, sqlx::Postgres, T, PgArguments>, BurchillPostgresError>
 where
     T: for<'r> FromRow<'r, PgRow>
 {
@@ -70,7 +68,7 @@ where
     add_bindings_to_query::<T>(sqlx_query, bindings)
 }
 
-pub async fn fetch_one<'a, T, Q, E>(query: Q, executor: E) -> Result<T, Box<dyn error::Error>>
+pub async fn fetch_one<'a, T, Q, E>(query: Q, executor: E) -> Result<T, BurchillPostgresError>
 where
     T: for<'r> FromRow<'r, PgRow> + Send + Unpin,
     Q: Into<quaint::prelude::Query<'a>>,
@@ -78,24 +76,27 @@ where
 {
     let (query, bindings) = match quaint::visitor::Postgres::build(query) {
         Ok(query_and_bindings) => query_and_bindings,
-        Err(err) => return Err(Box::new(err))
+        Err(err) => return Err(BurchillPostgresError::QuaintError(err))
     };
 
     println!("{}", query);
 
     let query = create_sqlx_query::<T>(query.as_str(), bindings)?;
-    Ok(query.fetch_one(executor).await?)
+    match query.fetch_one(executor).await {
+        Ok(result) => Ok(result),
+        Err(err) => Err(BurchillPostgresError::SqlxError(err))
+    }
 }
 
 // Since quaint does not allow returns on an update query I have to hack it in! 🪓🪓🪓
-pub async fn update_and_fetch_one<'a, T, E>(query: Update<'a>, returning_values: Vec<&str>, executor: E) -> Result<T, Box<dyn error::Error>> 
+pub async fn update_and_fetch_one<'a, T, E>(query: Update<'a>, returning_values: Vec<&str>, executor: E) -> Result<T, BurchillPostgresError> 
 where 
     T: for<'r> FromRow<'r, PgRow> + Send + Unpin,
     E: Executor<'a, Database = Postgres>
 {
     let (mut query, bindings) = match quaint::visitor::Postgres::build(query) {
         Ok(query_and_bindings) => query_and_bindings,
-        Err(err) => return Err(Box::new(err))
+        Err(err) => return Err(BurchillPostgresError::QuaintError(err))
     };
 
     if returning_values.len() > 0 {
@@ -115,25 +116,18 @@ where
     }
 
     let query = create_sqlx_query(query.as_str(), bindings)?;
-    Ok(query.fetch_one(executor).await?)
-}
-
-#[derive(Debug, Clone)]
-pub struct UnknownSqlType;
-
-impl error::Error for UnknownSqlType {}
-
-impl fmt::Display for UnknownSqlType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Could not determine a values SQL type before binding.")
+    match query.fetch_one(executor).await {
+        Ok(result) => Ok(result),
+        Err(err) => Err(BurchillPostgresError::SqlxError(err))
     }
 }
 
-
 #[derive(Error, Debug)]
 pub enum BurchillPostgresError {
-    #[error("Entity is missing it's primary id when it was required.")]
-    MissingId,
     #[error("Could not determine a values SQL type before binding.")]
-    UnknownSqlType
+    UnknownSqlType,
+    #[error(transparent)]
+    QuaintError(#[from] quaint::error::Error),
+    #[error(transparent)]
+    SqlxError(#[from] sqlx::Error)
 }

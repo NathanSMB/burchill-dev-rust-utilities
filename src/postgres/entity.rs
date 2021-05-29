@@ -1,11 +1,9 @@
 use sqlx::{Executor, Pool, Postgres};
 use async_trait::async_trait;
 use uuid::{Uuid};
-use std::{error, fmt};
 use quaint::prelude::{Insert, SingleRowInsert, Update, default_value};
-use thiserror::Error;
 use chrono::{DateTime, Utc};
-use crate::postgres::{PostgresBaseEntityData, fetch_one, update_and_fetch_one};
+use crate::postgres::{PostgresBaseEntityData, fetch_one, update_and_fetch_one, BurchillPostgresError};
 
 
 #[derive(Clone)]
@@ -135,14 +133,14 @@ pub trait PostgresEntity<'a, D> {
         self.get_mutable_entity_manager().set_active(active);
     }
 
-    fn create_insert_query<'b>(&self) -> Result<SingleRowInsert<'b>, Box<dyn error::Error>>;
-    fn create_update_query<'b>(&self) -> Result<Update<'b>, Box<dyn error::Error>>;
+    fn create_insert_query<'b>(&self) -> Result<SingleRowInsert<'b>, BurchillPostgresError>;
+    fn create_update_query<'b>(&self) -> Result<Update<'b>, BurchillPostgresError>;
 
-    async fn post_save_hook(&mut self) -> Result<(), Box<dyn error::Error>> {
+    async fn post_save_hook(&mut self) -> Result<(), BurchillPostgresError> {
         Ok(())
     }
 
-    async fn save<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), Box<dyn error::Error>>
+    async fn save<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
         let result = if let Some(_) = self.get_id() {
             self.update(&user_id, executor)
@@ -153,7 +151,7 @@ pub trait PostgresEntity<'a, D> {
         Ok(result.await?)
     }
 
-    async fn insert<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), Box<dyn error::Error>>
+    async fn insert<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
         let query = self.create_audited_insert_query(user_id)?;
         let query = Insert::from(query).returning(vec!["id", "created_by", "created_time", "active"]);
@@ -169,7 +167,7 @@ pub trait PostgresEntity<'a, D> {
         self.post_save_hook().await
     }
 
-    async fn update<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), Box<dyn error::Error>>
+    async fn update<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
         let query = self.create_audited_update_query(user_id)?;
         let result: UpdateReturn = update_and_fetch_one(query, vec!["last_updated_by, last_updated_time"], executor).await?;
@@ -181,24 +179,25 @@ pub trait PostgresEntity<'a, D> {
         self.post_save_hook().await
     }
     
-    async fn quicksave(&mut self, user_id: &Uuid) -> Result<(), Box<dyn error::Error>> {
+    async fn quicksave(&mut self, user_id: &Uuid) -> Result<(), BurchillPostgresError> {
         let pool = self.get_pool();
         self.save(user_id, pool).await?;
         Ok(())
     }
     
-    fn create_audited_update_query<'b>(&self, user_id: &Uuid) -> Result<Update<'b>, Box<dyn error::Error>> {
+    fn create_audited_update_query<'b>(&self, user_id: &Uuid) -> Result<Update<'b>, BurchillPostgresError> {
         Ok(self.create_update_query()?
             .set("last_updated_time", Utc::now())
             .set("last_updated_by", user_id.to_owned()))
     }
     
-    fn create_audited_insert_query<'b>(&self, user_id: &Uuid) -> Result<SingleRowInsert<'b>, Box<dyn error::Error>> {
+    fn create_audited_insert_query<'b>(&self, user_id: &Uuid) -> Result<SingleRowInsert<'b>, BurchillPostgresError> {
         Ok(self.create_insert_query()?
             .value("created_time", default_value())
             .value("created_by", user_id.to_owned()))
     }
 }
+
 #[derive(sqlx::FromRow)]
 struct InsertReturn {
     id: Uuid,
@@ -211,27 +210,4 @@ struct InsertReturn {
 struct UpdateReturn {
     last_updated_by: Uuid,
     last_updated_time: DateTime<Utc>
-}
-
-
-#[derive(Debug, Clone)]
-pub struct EntityMissingIdError;
-
-impl error::Error for EntityMissingIdError {}
-
-impl fmt::Display for EntityMissingIdError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Entity is missing it's primary id when it was required.")
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct UnknownSqlType;
-
-impl error::Error for UnknownSqlType {}
-
-impl fmt::Display for UnknownSqlType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Could not determine a values SQL type before binding.")
-    }
 }
