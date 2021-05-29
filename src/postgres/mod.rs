@@ -79,8 +79,6 @@ where
         Err(err) => return Err(BurchillPostgresError::QuaintError(err))
     };
 
-    println!("{}", query);
-
     let query = create_sqlx_query::<T>(query.as_str(), bindings)?;
     match query.fetch_one(executor).await {
         Ok(result) => Ok(result),
