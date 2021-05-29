@@ -1,6 +1,6 @@
 use quaint::prelude::Select;
 use sqlx::{Executor, Pool, Postgres};
-use std::error;
+use anyhow::Result;
 use async_trait::async_trait;
 use uuid::{Uuid};
 
@@ -8,9 +8,9 @@ use uuid::{Uuid};
 pub trait PostgresRepository<'a, T> {
     fn new(pool: &'a Pool<Postgres>) -> Self;
 
-    async fn find_one(&self, id: &Uuid) -> Result<T, Box<dyn error::Error>>;
+    async fn find_one(&self, id: &Uuid) -> Result<T>;
 
-    async fn find_one_with_executor<'b, E>(&self, id: &Uuid, executor: E) -> Result<T, Box<dyn error::Error>>
+    async fn find_one_with_executor<'b, E>(&self, id: &Uuid, executor: E) -> Result<T>
     where E: Executor<'b, Database = Postgres>;
 }
 

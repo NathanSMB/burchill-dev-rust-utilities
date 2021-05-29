@@ -18,7 +18,7 @@ pub struct PostgresBaseEntityData {
     pub active: Option<bool>,
 }
 
-pub async fn get_connection_pool(options: PgConnectOptions, max_connections: u32) -> Result<Pool<Postgres>, sqlx::Error> {
+pub async fn get_connection_pool(options: PgConnectOptions, max_connections: u32) -> Result<Pool<Postgres>, BurchillPostgresError> {
     let pool = PgPoolOptions::new()
         .max_connections(max_connections)
         .connect_with(options).await?;
@@ -126,8 +126,16 @@ where
 pub enum BurchillPostgresError {
     #[error("Could not determine a values SQL type before binding.")]
     UnknownSqlType,
+    #[error("An operation was attempted that requires a field to be not null. (Table: {table:?}, Field: {field:?}, Id: {id:?}")]
+    EntityMissingValue {
+        table: String,
+        field: String,
+        id: Option<Uuid>
+    },
     #[error(transparent)]
     QuaintError(#[from] quaint::error::Error),
     #[error(transparent)]
-    SqlxError(#[from] sqlx::Error)
+    SqlxError(#[from] sqlx::Error),
+    #[error(transparent)]
+    AnyhowError(#[from] anyhow::Error),
 }

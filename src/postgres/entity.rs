@@ -1,5 +1,6 @@
 use sqlx::{Executor, Pool, Postgres};
 use async_trait::async_trait;
+use anyhow::Result;
 use uuid::{Uuid};
 use quaint::prelude::{Insert, SingleRowInsert, Update, default_value};
 use chrono::{DateTime, Utc};
@@ -133,10 +134,10 @@ pub trait PostgresEntity<'a, D> {
         self.get_mutable_entity_manager().set_active(active);
     }
 
-    fn create_insert_query<'b>(&self) -> Result<SingleRowInsert<'b>, BurchillPostgresError>;
-    fn create_update_query<'b>(&self) -> Result<Update<'b>, BurchillPostgresError>;
+    fn create_insert_query<'b>(&self) -> Result<SingleRowInsert<'b>>;
+    fn create_update_query<'b>(&self) -> Result<Update<'b>>;
 
-    async fn post_save_hook(&mut self) -> Result<(), BurchillPostgresError> {
+    async fn post_save_hook(&mut self) -> Result<()> {
         Ok(())
     }
 
@@ -164,7 +165,10 @@ pub trait PostgresEntity<'a, D> {
         entity_manager.set_created_time(result.created_time);
         entity_manager.set_active(result.active);
 
-        self.post_save_hook().await
+        match self.post_save_hook().await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(BurchillPostgresError::AnyhowError(err))
+        }
     }
 
     async fn update<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
@@ -176,7 +180,10 @@ pub trait PostgresEntity<'a, D> {
         entity_manager.set_last_updated_by(result.last_updated_by);
         entity_manager.set_last_updated_time(result.last_updated_time);
 
-        self.post_save_hook().await
+        match self.post_save_hook().await {
+            Ok(_) => Ok(()),
+            Err(err) => Err(BurchillPostgresError::AnyhowError(err))
+        }
     }
     
     async fn quicksave(&mut self, user_id: &Uuid) -> Result<(), BurchillPostgresError> {
