@@ -140,6 +140,22 @@ pub trait PostgresEntity<'a, D> {
     async fn post_save_hook(&mut self) -> Result<()> {
         Ok(())
     }
+    async fn post_insert_hook(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn post_update_hook(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn pre_save_hook(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn pre_insert_hook(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn pre_update_hook(&mut self) -> Result<()> {
+        Ok(())
+    }
+
 
     async fn save<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
@@ -154,6 +170,14 @@ pub trait PostgresEntity<'a, D> {
 
     async fn insert<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
+        if let Err(err) = self.pre_save_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
+        if let Err(err) = self.pre_insert_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
         let query = self.create_audited_insert_query(user_id)?;
         let query = Insert::from(query).returning(vec!["id", "created_by", "created_time", "active"]);
 
@@ -165,14 +189,27 @@ pub trait PostgresEntity<'a, D> {
         entity_manager.set_created_time(result.created_time);
         entity_manager.set_active(result.active);
 
-        match self.post_save_hook().await {
-            Ok(_) => Ok(()),
-            Err(err) => Err(BurchillPostgresError::AnyhowError(err))
+        if let Err(err) = self.post_insert_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
         }
+
+        if let Err(err) = self.post_save_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
+        Ok(())
     }
 
     async fn update<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
+        if let Err(err) = self.pre_save_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
+        if let Err(err) = self.pre_update_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
         let query = self.create_audited_update_query(user_id)?;
         let result: UpdateReturn = update_and_fetch_one(query, vec!["last_updated_by, last_updated_time"], executor).await?;
 
@@ -180,10 +217,15 @@ pub trait PostgresEntity<'a, D> {
         entity_manager.set_last_updated_by(result.last_updated_by);
         entity_manager.set_last_updated_time(result.last_updated_time);
 
-        match self.post_save_hook().await {
-            Ok(_) => Ok(()),
-            Err(err) => Err(BurchillPostgresError::AnyhowError(err))
+        if let Err(err) = self.post_update_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
         }
+
+        if let Err(err) = self.post_save_hook().await {
+            return Err(BurchillPostgresError::AnyhowError(err));
+        }
+
+        Ok(())
     }
     
     async fn quicksave(&mut self, user_id: &Uuid) -> Result<(), BurchillPostgresError> {
