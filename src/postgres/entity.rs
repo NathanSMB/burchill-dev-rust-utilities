@@ -1,4 +1,4 @@
-use sqlx::{Executor, Pool, Postgres};
+use sqlx::{Executor, Postgres};
 use async_trait::async_trait;
 use anyhow::Result;
 use uuid::{Uuid};
@@ -8,13 +8,12 @@ use crate::postgres::{PostgresBaseEntityData, fetch_one, update_and_fetch_one, B
 
 
 #[derive(Clone)]
-pub struct PostgresEntityManager<'a> {
-    pub entity_data: PostgresBaseEntityData,
-    pub pool: &'a Pool<Postgres>
+pub struct PostgresEntityManager {
+    pub entity_data: PostgresBaseEntityData
 }
 
-impl<'a> PostgresEntityManager<'a> {
-    pub fn new(pool: &'a Pool<Postgres>) -> Self {
+impl PostgresEntityManager {
+    pub fn new() -> Self {
         PostgresEntityManager {
             entity_data: PostgresBaseEntityData {
                 id: None,
@@ -23,20 +22,14 @@ impl<'a> PostgresEntityManager<'a> {
                 last_updated_by: None,
                 last_updated_time: None,
                 active: None
-            },
-            pool
+            }
         }
     }
 
-    pub fn from_db(pool: &'a Pool<Postgres>, data: PostgresBaseEntityData) -> Self {
+    pub fn from_db(data: PostgresBaseEntityData) -> Self {
         PostgresEntityManager {
-            entity_data: data,
-            pool
+            entity_data: data
         }
-    }
-
-    fn get_pool(&self) -> &'a Pool<Postgres> {
-        &self.pool
     }
 
     fn get_id(&self) -> Option<Uuid> {
@@ -95,16 +88,12 @@ impl<'a> PostgresEntityManager<'a> {
 }
 
 #[async_trait]
-pub trait PostgresEntity<'a, D> {
-    fn new(pool: &'a Pool<Postgres>, data: D) -> Self;
-    fn from_db(data: D, manager: PostgresEntityManager<'a>) -> Self;
+pub trait PostgresEntity<D> {
+    fn new(data: D) -> Self;
+    fn from_db(data: D, manager: PostgresEntityManager) -> Self;
 
-    fn get_entity_manager(&self) -> &PostgresEntityManager<'a>;
-    fn get_mutable_entity_manager(&mut self) -> &mut PostgresEntityManager<'a>;
-
-    fn get_pool(&self) -> &'a Pool<Postgres> {
-        self.get_entity_manager().get_pool()
-    }
+    fn get_entity_manager(&self) -> &PostgresEntityManager;
+    fn get_mutable_entity_manager(&mut self) -> &mut PostgresEntityManager;
 
     fn get_id(&self) -> Option<Uuid> {
         self.get_entity_manager().get_id()
@@ -157,16 +146,16 @@ pub trait PostgresEntity<'a, D> {
     }
 
 
-    async fn save<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
+    async fn save<'b, E>(&mut self, executor: E, user_id: &Uuid) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
         if let Err(err) = self.pre_save_hook().await {
             return Err(BurchillPostgresError::AnyhowError(err));
         }
 
         let result = if let Some(_) = self.get_id() {
-            self.update(&user_id, executor)
+            self.update(executor, &user_id)
         } else {
-            self.insert(&user_id, executor)
+            self.insert(executor, &user_id)
         };
 
         let result = result.await?;
@@ -178,7 +167,7 @@ pub trait PostgresEntity<'a, D> {
         Ok(result)
     }
 
-    async fn insert<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
+    async fn insert<'b, E>(&mut self, executor: E, user_id: &Uuid) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
         if let Err(err) = self.pre_insert_hook().await {
             return Err(BurchillPostgresError::AnyhowError(err));
@@ -202,7 +191,7 @@ pub trait PostgresEntity<'a, D> {
         Ok(())
     }
 
-    async fn update<'b, E>(&mut self, user_id: &Uuid, executor: E) -> Result<(), BurchillPostgresError>
+    async fn update<'b, E>(&mut self, executor: E, user_id: &Uuid) -> Result<(), BurchillPostgresError>
     where E: Executor<'b, Database = Postgres> {
         if let Err(err) = self.pre_update_hook().await {
             return Err(BurchillPostgresError::AnyhowError(err));
@@ -219,12 +208,6 @@ pub trait PostgresEntity<'a, D> {
             return Err(BurchillPostgresError::AnyhowError(err));
         }
 
-        Ok(())
-    }
-    
-    async fn quicksave(&mut self, user_id: &Uuid) -> Result<(), BurchillPostgresError> {
-        let pool = self.get_pool();
-        self.save(user_id, pool).await?;
         Ok(())
     }
     

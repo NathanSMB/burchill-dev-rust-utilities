@@ -1,16 +1,14 @@
 use quaint::prelude::Select;
-use sqlx::{Executor, Pool, Postgres};
+use sqlx::{Executor, Postgres};
 use anyhow::Result;
 use async_trait::async_trait;
 use uuid::{Uuid};
 
 #[async_trait]
-pub trait PostgresRepository<'a, T> {
-    fn new(pool: &'a Pool<Postgres>) -> Self;
+pub trait PostgresRepository<T> {
+    fn new() -> Self;
 
-    async fn find_one(&self, id: &Uuid) -> Result<T>;
-
-    async fn find_one_with_executor<'b, E>(&self, id: &Uuid, executor: E) -> Result<T>
+    async fn find_one<'b, E>(&self, executor: E, id: &Uuid) -> Result<T>
     where E: Executor<'b, Database = Postgres>;
 }
 
